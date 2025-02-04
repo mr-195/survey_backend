@@ -15,7 +15,7 @@ app = FastAPI()
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://survey-app-frontend-mwv6kuqz9-mr-195s-projects.vercel.app/"],
+    allow_origins=["https://survey-app-frontend-mwv6kuqz9-mr-195s-projects.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
