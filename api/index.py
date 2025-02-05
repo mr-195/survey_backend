@@ -104,3 +104,6 @@ async def get_responses(question_id: str):
         raise HTTPException(status_code=500, detail=f"Error fetching responses: {str(e)}")
 
 # Run server command: uvicorn index:app --host 0.0.0.0 --port 8000 --reload
+
+async def vercel_handler(event, context):
+    return app
