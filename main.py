@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel
@@ -7,35 +7,39 @@ from datetime import datetime
 from bson import ObjectId
 import os
 from dotenv import load_dotenv
-from contextlib import asynccontextmanager
+from functools import lru_cache
 
 # Load environment variables
 load_dotenv()
 MONGODB_URL = os.getenv("MONGODB_URL")
 
-# Global database client
-client = None
+# Database connection management
+class Database:
+    client: Optional[AsyncIOMotorClient] = None
+    
+    @classmethod
+    def get_client(cls):
+        if cls.client is None:
+            cls.client = AsyncIOMotorClient(
+                MONGODB_URL,
+                maxPoolSize=10,
+                minPoolSize=5,
+                maxIdleTimeMS=50000,
+                serverSelectionTimeoutMS=5000,
+                waitQueueTimeoutMS=5000,
+                retryWrites=True,
+                connectTimeoutMS=5000,
+                socketTimeoutMS=20000,
+            )
+        return cls.client
 
-# Startup and shutdown events
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    global client
-    client = AsyncIOMotorClient(
-        MONGODB_URL,
-        maxPoolSize=10,
-        minPoolSize=5,
-        maxIdleTimeMS=50000,
-        connectTimeoutMS=5000,
-        serverSelectionTimeoutMS=5000
-    )
-    yield
-    # Shutdown
-    if client:
-        client.close()
+    @classmethod
+    def get_db(cls):
+        client = cls.get_client()
+        return client.voting_app
 
-# Initialize FastAPI app with lifespan
-app = FastAPI(lifespan=lifespan)
+# Initialize FastAPI app
+app = FastAPI()
 
 # CORS middleware
 app.add_middleware(
@@ -46,11 +50,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Dependency to get database
-async def get_db():
-    global client
-    db = client.voting_app
-    return db
+# Cache database instance
+@lru_cache(maxsize=1)
+def get_database():
+    return Database.get_db()
 
 # Pydantic models
 class Question(BaseModel):
@@ -64,14 +67,15 @@ class Response(BaseModel):
     response_text: Union[str, int, List[str]]
     submitted_at: datetime
 
-# Root route for Vercel
-@app.get("/")
+# Root route
+@app.get("/api")
 async def root():
     return {"message": "Voting API is running"}
 
-# Health Check Endpoint
-@app.get("/health")
-async def health_check(db=Depends(get_db)):
+# Health Check
+@app.get("/api/health")
+async def health_check():
+    db = get_database()
     try:
         await db.command('ping')
         return {"status": "healthy", "database": "connected"}
@@ -79,10 +83,12 @@ async def health_check(db=Depends(get_db)):
         raise HTTPException(status_code=503, detail=str(e))
 
 # Fetch All Questions
-@app.get("/questions")
-async def get_questions(db=Depends(get_db)):
+@app.get("/api/questions")
+async def get_questions():
+    db = get_database()
     try:
-        questions = await db.questions.find().to_list(length=None)
+        cursor = db.questions.find()
+        questions = await cursor.to_list(length=100)  # Limit to 100 for performance
         return [
             {**question, "_id": str(question["_id"])}
             for question in questions
@@ -91,8 +97,9 @@ async def get_questions(db=Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 # Fetch Single Question
-@app.get("/questions/{question_id}")
-async def get_question(question_id: str, db=Depends(get_db)):
+@app.get("/api/questions/{question_id}")
+async def get_question(question_id: str):
+    db = get_database()
     try:
         question = await db.questions.find_one({"_id": ObjectId(question_id)})
         if not question:
@@ -103,8 +110,9 @@ async def get_question(question_id: str, db=Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 # Submit Response
-@app.post("/responses")
-async def submit_response(response: Response, db=Depends(get_db)):
+@app.post("/api/responses")
+async def submit_response(response: Response):
+    db = get_database()
     try:
         response_dict = response.dict()
         response_dict["submitted_at"] = datetime.utcnow()
@@ -114,13 +122,21 @@ async def submit_response(response: Response, db=Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 # Get Responses for a Question
-@app.get("/responses/{question_id}")
-async def get_responses(question_id: str, db=Depends(get_db)):
+@app.get("/api/responses/{question_id}")
+async def get_responses(question_id: str):
+    db = get_database()
     try:
-        responses = await db.responses.find({"question_id": question_id}).to_list(length=None)
+        cursor = db.responses.find({"question_id": question_id})
+        responses = await cursor.to_list(length=100)  # Limit to 100 for performance
         return [
             {**response, "_id": str(response["_id"])}
             for response in responses
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Shutdown event
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    if Database.client:
+        Database.client.close()
