@@ -8,9 +8,25 @@ from bson import ObjectId
 import json
 import os
 from dotenv import load_dotenv
+from contextlib import asynccontextmanager
 
 load_dotenv()
-app = FastAPI()
+
+MONGODB_URL = os.getenv("MONGODB_URL")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global client, db  # Declare as global to use across routes
+    client = AsyncIOMotorClient(MONGODB_URL)
+    db = client.voting_app
+    print("✅ Successfully connected to MongoDB")
+    
+    yield  # Let FastAPI run
+
+    print("🛑 Closing MongoDB connection...")
+    client.close()
+    
+app = FastAPI(lifespan=lifespan)
 
 # CORS middleware
 app.add_middleware(
@@ -23,16 +39,19 @@ app.add_middleware(
 
 # MongoDB Atlas connection string
 # Replace with your actual connection string
-MONGODB_URL = os.getenv("MONGODB_URL")
+
+
+
+
 # Create a client instance
-try:
-    client = AsyncIOMotorClient(MONGODB_URL)
-    # Ping the server to confirm connection
-    client.admin.command('ping')
-    print("Successfully connected to MongoDB Atlas!")
-except Exception as e:
-    print(f"Error connecting to MongoDB Atlas: {e}")
-    raise
+# try:
+#     client = AsyncIOMotorClient(MONGODB_URL)
+#     # Ping the server to confirm connection
+#     client.admin.command('ping')
+#     print("Successfully connected to MongoDB Atlas!")
+# except Exception as e:
+#     print(f"Error connecting to MongoDB Atlas: {e}")
+#     raise
 
 db = client.voting_app
 
