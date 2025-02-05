@@ -5,7 +5,6 @@ from pydantic import BaseModel
 from typing import List, Optional, Union
 from datetime import datetime
 from bson import ObjectId
-import json
 import os
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
@@ -14,6 +13,7 @@ load_dotenv()
 
 MONGODB_URL = os.getenv("MONGODB_URL")
 
+# Lifespan context manager to handle startup & shutdown
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global client, db  # Declare as global to use across routes
@@ -25,35 +25,17 @@ async def lifespan(app: FastAPI):
 
     print("🛑 Closing MongoDB connection...")
     client.close()
-    
+
 app = FastAPI(lifespan=lifespan)
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# MongoDB Atlas connection string
-# Replace with your actual connection string
-
-
-
-
-# Create a client instance
-# try:
-#     client = AsyncIOMotorClient(MONGODB_URL)
-#     # Ping the server to confirm connection
-#     client.admin.command('ping')
-#     print("Successfully connected to MongoDB Atlas!")
-# except Exception as e:
-#     print(f"Error connecting to MongoDB Atlas: {e}")
-#     raise
-
-db = client.voting_app
 
 # Pydantic models
 class Question(BaseModel):
@@ -67,28 +49,27 @@ class Response(BaseModel):
     response_text: Union[str, int, List[str]]
     submitted_at: datetime
 
-# Health check endpoint
+# Health check
 @app.get("/api/health")
 async def health_check():
     try:
-        print("MONGODB_URL", MONGODB_URL)
         await client.admin.command('ping')
         return {"status": "healthy", "database": "connected"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database connection error: {str(e)}")
 
-# Routes
+# Fetch questions
 @app.get("/api/questions")
 async def get_questions():
     try:
         questions = await db.questions.find().to_list(length=None)
-        # Convert ObjectId to string for JSON serialization
         for question in questions:
             question["_id"] = str(question["_id"])
         return questions
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching questions: {str(e)}")
 
+# Fetch a single question
 @app.get("/api/questions/{question_id}")
 async def get_question(question_id: str):
     try:
@@ -100,6 +81,7 @@ async def get_question(question_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching question: {str(e)}")
 
+# Submit response
 @app.post("/api/responses")
 async def submit_response(response: Response):
     try:
@@ -110,6 +92,7 @@ async def submit_response(response: Response):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error submitting response: {str(e)}")
 
+# Get responses for a question
 @app.get("/api/responses/{question_id}")
 async def get_responses(question_id: str):
     try:
@@ -119,3 +102,5 @@ async def get_responses(question_id: str):
         return responses
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching responses: {str(e)}")
+
+# Run server command: uvicorn index:app --host 0.0.0.0 --port 8000 --reload
