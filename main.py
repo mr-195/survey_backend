@@ -228,15 +228,15 @@ async def health_check():
 async def get_questions():
     try:
         db = get_database()
-        loop = asyncio.get_event_loop()
         cursor = db.questions.find()
-        questions = await loop.run_in_executor(None, lambda: list(cursor))
+        questions = await cursor.to_list(length=None)  # FIX HERE
         return [
             {**question, "_id": str(question["_id"])}
             for question in questions
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/questions/{question_id}")
 async def get_question(question_id: str):
@@ -258,13 +258,11 @@ async def get_question(question_id: str):
 async def submit_response(response: Response):
     try:
         db = get_database()
-        loop = asyncio.get_event_loop()
         response_dict = response.dict()
         response_dict["submitted_at"] = datetime.utcnow()
-        result = await loop.run_in_executor(
-            None,
-            lambda: db.responses.insert_one(response_dict)
-        )
+        
+        result = await db.responses.insert_one(response_dict)  # FIXED HERE ✅
+        
         return {"response_id": str(result.inserted_id)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -273,9 +271,8 @@ async def submit_response(response: Response):
 async def get_responses(question_id: str):
     try:
         db = get_database()
-        loop = asyncio.get_event_loop()
         cursor = db.responses.find({"question_id": question_id})
-        responses = await loop.run_in_executor(None, lambda: list(cursor))
+        responses = await cursor.to_list(length=None)  # FIX HERE
         return [
             {**response, "_id": str(response["_id"])}
             for response in responses
