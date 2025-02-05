@@ -7,7 +7,7 @@ from datetime import datetime
 from bson import ObjectId
 import os
 from dotenv import load_dotenv
-from functools import lru_cache
+import certifi
 
 # Load environment variables
 load_dotenv()
@@ -20,16 +20,17 @@ class Database:
     @classmethod
     def get_client(cls):
         if cls.client is None:
+            # Initialize client with correct parameters
             cls.client = AsyncIOMotorClient(
                 MONGODB_URL,
-                maxPoolSize=10,
-                minPoolSize=5,
-                maxIdleTimeMS=50000,
+                tlsCAFile=certifi.where(),
                 serverSelectionTimeoutMS=5000,
-                waitQueueTimeoutMS=5000,
-                retryWrites=True,
-                connectTimeoutMS=5000,
+                connectTimeoutMS=10000,
                 socketTimeoutMS=20000,
+                maxPoolSize=10,
+                minPoolSize=0,
+                maxIdleTimeMS=50000,
+                retryWrites=True
             )
         return cls.client
 
@@ -50,8 +51,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Cache database instance
-@lru_cache(maxsize=1)
+# Get database instance
 def get_database():
     return Database.get_db()
 
@@ -88,7 +88,7 @@ async def get_questions():
     db = get_database()
     try:
         cursor = db.questions.find()
-        questions = await cursor.to_list(length=100)  # Limit to 100 for performance
+        questions = await cursor.to_list(length=100)
         return [
             {**question, "_id": str(question["_id"])}
             for question in questions
@@ -127,7 +127,7 @@ async def get_responses(question_id: str):
     db = get_database()
     try:
         cursor = db.responses.find({"question_id": question_id})
-        responses = await cursor.to_list(length=100)  # Limit to 100 for performance
+        responses = await cursor.to_list(length=100)
         return [
             {**response, "_id": str(response["_id"])}
             for response in responses
