@@ -12,13 +12,13 @@ from contextlib import asynccontextmanager
 load_dotenv()
 
 MONGODB_URL = os.getenv("MONGODB_URL")
-
+def get_db():
+    client = AsyncIOMotorClient(MONGODB_URL)
+    return client,client.voting_app
 # Lifespan context manager to handle startup & shutdown
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global client, db  # Declare as global to use across routes
-    client = AsyncIOMotorClient(MONGODB_URL)
-    db = client.voting_app
+    client,db = get_db()
     print("✅ Successfully connected to MongoDB")
     
     yield  # Let FastAPI run
@@ -31,7 +31,7 @@ app = FastAPI(lifespan=lifespan)
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,7 +53,9 @@ class Response(BaseModel):
 @app.get("/api/health")
 async def health_check():
     try:
+        client,db = get_db()
         await client.admin.command('ping')
+        client.close()
         return {"status": "healthy", "database": "connected"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database connection error: {str(e)}")
@@ -62,7 +64,9 @@ async def health_check():
 @app.get("/api/questions")
 async def get_questions():
     try:
+        client,db = get_db()
         questions = await db.questions.find().to_list(length=None)
+        client.close()
         for question in questions:
             question["_id"] = str(question["_id"])
         return questions
@@ -73,7 +77,9 @@ async def get_questions():
 @app.get("/api/questions/{question_id}")
 async def get_question(question_id: str):
     try:
+        client,db = get_db()
         question = await db.questions.find_one({"_id": ObjectId(question_id)})
+        client.close()
         if question:
             question["_id"] = str(question["_id"])
             return question
@@ -85,9 +91,11 @@ async def get_question(question_id: str):
 @app.post("/api/responses")
 async def submit_response(response: Response):
     try:
+        client,db = get_db()
         response_dict = response.dict()
         response_dict["submitted_at"] = datetime.utcnow()
         result = await db.responses.insert_one(response_dict)
+        client.close()
         return {"response_id": str(result.inserted_id)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error submitting response: {str(e)}")
@@ -95,15 +103,16 @@ async def submit_response(response: Response):
 # Get responses for a question
 @app.get("/api/responses/{question_id}")
 async def get_responses(question_id: str):
+    
     try:
+        client,db = get_db()
         responses = await db.responses.find({"question_id": question_id}).to_list(length=None)
         for response in responses:
             response["_id"] = str(response["_id"])
+        client.close()
         return responses
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching responses: {str(e)}")
 
 # Run server command: uvicorn index:app --host 0.0.0.0 --port 8000 --reload
 
-async def vercel_handler(event, context):
-    return app
