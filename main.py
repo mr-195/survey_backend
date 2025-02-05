@@ -64,18 +64,22 @@ class Response(BaseModel):
     response_text: Union[str, int, List[str]]
     submitted_at: datetime
 
+# Root route for Vercel
+@app.get("/")
+async def root():
+    return {"message": "Voting API is running"}
+
 # Health Check Endpoint
-@app.get("/api/health")
+@app.get("/health")
 async def health_check(db=Depends(get_db)):
     try:
-        print("MONGODB_URL printing ", MONGODB_URL)
         await db.command('ping')
         return {"status": "healthy", "database": "connected"}
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-# Fetch All Questions with caching headers
-@app.get("/api/questions")
+# Fetch All Questions
+@app.get("/questions")
 async def get_questions(db=Depends(get_db)):
     try:
         questions = await db.questions.find().to_list(length=None)
@@ -87,7 +91,7 @@ async def get_questions(db=Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 # Fetch Single Question
-@app.get("/api/questions/{question_id}")
+@app.get("/questions/{question_id}")
 async def get_question(question_id: str, db=Depends(get_db)):
     try:
         question = await db.questions.find_one({"_id": ObjectId(question_id)})
@@ -99,7 +103,7 @@ async def get_question(question_id: str, db=Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 # Submit Response
-@app.post("/api/responses")
+@app.post("/responses")
 async def submit_response(response: Response, db=Depends(get_db)):
     try:
         response_dict = response.dict()
@@ -110,7 +114,7 @@ async def submit_response(response: Response, db=Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 # Get Responses for a Question
-@app.get("/api/responses/{question_id}")
+@app.get("/responses/{question_id}")
 async def get_responses(question_id: str, db=Depends(get_db)):
     try:
         responses = await db.responses.find({"question_id": question_id}).to_list(length=None)
@@ -120,8 +124,3 @@ async def get_responses(question_id: str, db=Depends(get_db)):
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-# Root route for Vercel
-@app.get("/")
-async def root():
-    return {"message": "Voting API is running"}
