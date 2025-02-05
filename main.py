@@ -68,6 +68,7 @@ class Response(BaseModel):
 @app.get("/api/health")
 async def health_check(db=Depends(get_db)):
     try:
+        print("MONGODB_URL printing ", MONGODB_URL)
         await db.command('ping')
         return {"status": "healthy", "database": "connected"}
     except Exception as e:
